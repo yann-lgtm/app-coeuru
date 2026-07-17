@@ -1,0 +1,36 @@
+# Dépendances
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Builds natifs (générés par `expo prebuild`)
+# On garde ios/GardeAppelCallDirectory et ios/GardeAppelMessageFilter (sources de l'extension)
+# mais on ignore le reste du projet natif généré.
+/ios/build/
+/ios/Pods/
+/ios/*.xcworkspace
+/android/
+
+# Secrets
+.env
+.env.local
+.env*.local
+
+# Assets placeholder générés (voir `npm run assets`)
+/assets/*.png
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# Divers
+*.orig.*

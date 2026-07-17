@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "GardeAppel",
+    "slug": "garde-appel",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "gardeappel",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0B1220"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.coeuru.gardeappel",
+      "infoPlist": {
+        "CFBundleDisplayName": "GardeAppel"
+      },
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.coeuru.gardeappel"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.coeuru.gardeappel",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0B1220"
+      }
+    },
+    "plugins": [
+      "expo-dev-client"
+    ],
+    "extra": {
+      "supabaseUrl": "",
+      "supabaseAnonKey": "",
+      "appGroup": "group.com.coeuru.gardeappel"
+    }
+  }
+}
