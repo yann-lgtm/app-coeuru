@@ -1,7 +1,8 @@
+import { Ionicons } from '@expo/vector-icons';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppState, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, Modal, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import {
@@ -15,6 +16,17 @@ import {
   supprimerMorceau,
   synchroniserAvecMac,
 } from './src/bibliotheque';
+import {
+  FONDU_SECONDES,
+  LIBELLES_REPETITION,
+  Minuterie,
+  Repetition,
+  indexPrecedent,
+  indexSuivant,
+  libelleMinuterie,
+  minuterieSuivante,
+  repetitionSuivante,
+} from './src/lecture';
 
 const SAUT_SECONDES = 30;
 const ADRESSE_MAC_PAR_DEFAUT = 'Yann-Coeuru.local';
@@ -47,6 +59,11 @@ function Lecteur() {
   const courant = indexCourant === -1 ? null : indexCourant;
   const positions = useRef<Record<string, number>>({});
   const repriseEnAttente = useRef<number | null>(null);
+  const [pleinEcran, setPleinEcran] = useState(false);
+  const [repetition, setRepetition] = useState<Repetition>('non');
+  const [aleatoire, setAleatoire] = useState(false);
+  const [minuterie, setMinuterie] = useState<Minuterie>(null);
+  const [maintenant, setMaintenant] = useState(Date.now());
 
   const recharger = useCallback(() => {
     try {
@@ -107,6 +124,31 @@ function Lecteur() {
     [morceaux, morceauCourant, memoriser, player],
   );
 
+  // « Répète ce morceau » : c'est le lecteur qui boucle, sans passer par la fin.
+  useEffect(() => {
+    player.loop = repetition === 'morceau';
+  }, [repetition, player]);
+
+  // Minuterie d'arrêt : fondu sur les dernières secondes, puis pause.
+  useEffect(() => {
+    if (minuterie?.type !== 'duree') {
+      player.volume = 1;
+      return;
+    }
+    const tic = setInterval(() => {
+      const reste = (minuterie.fin - Date.now()) / 1000;
+      setMaintenant(Date.now());
+      if (reste <= 0) {
+        player.pause();
+        player.volume = 1;
+        setMinuterie(null);
+      } else if (reste < FONDU_SECONDES) {
+        player.volume = reste / FONDU_SECONDES;
+      }
+    }, 1000);
+    return () => clearInterval(tic);
+  }, [minuterie, player]);
+
   // Reprise là où on s'était arrêté, une fois le fichier chargé.
   useEffect(() => {
     const reprise = repriseEnAttente.current;
@@ -124,13 +166,42 @@ function Lecteur() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tranche]);
 
-  // Fin du morceau : on repart du début la prochaine fois, et on enchaîne.
+  // Fin du morceau : on repart du début la prochaine fois, puis on enchaîne
+  // selon la répétition et le hasard — sauf si la minuterie dit d'arrêter.
   useEffect(() => {
     if (!status.didJustFinish || courant === null || !morceauCourant) return;
     memoriser(morceauCourant.nom, 0);
-    if (courant + 1 < morceaux.length) lancer(courant + 1);
+    if (minuterie?.type === 'fin-morceau') {
+      setMinuterie(null);
+      return;
+    }
+    const suivant = indexSuivant(morceaux, courant, repetition, aleatoire);
+    if (suivant !== null) lancer(suivant);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status.didJustFinish]);
+
+  const allerSuivant = () => {
+    if (courant === null) return;
+    const suivant = indexSuivant(morceaux, courant, repetition === 'morceau' ? 'non' : repetition, aleatoire);
+    if (suivant !== null) lancer(suivant);
+  };
+
+  // Comme sur un autoradio : un premier appui revient au début du morceau.
+  const allerPrecedent = () => {
+    if (courant === null) return;
+    if (status.currentTime > 5) {
+      player.seekTo(0);
+      return;
+    }
+    const precedent = indexPrecedent(morceaux, courant, repetition === 'morceau' ? 'non' : repetition);
+    if (precedent !== null) lancer(precedent);
+  };
+
+  const changerMinuterie = () => {
+    const t = Date.now();
+    setMaintenant(t);
+    setMinuterie((m) => minuterieSuivante(m, t));
+  };
 
   const lectureOuPause = () => {
     if (courant === null) {
@@ -292,9 +363,16 @@ function Lecteur() {
       />
 
       <View style={styles.panneau}>
-        <Text style={styles.enCours} numberOfLines={1}>
-          {morceauCourant ? morceauCourant.titre : 'Choisis un morceau'}
-        </Text>
+        <Pressable
+          onPress={() => morceauCourant && setPleinEcran(true)}
+          style={({ pressed }) => [styles.enCoursLigne, pressed && styles.appuye]}
+          accessibilityLabel="Agrandir le lecteur"
+        >
+          <Text style={styles.enCours} numberOfLines={1}>
+            {morceauCourant ? morceauCourant.titre : 'Choisis un morceau'}
+          </Text>
+          {morceauCourant && <Ionicons name="chevron-up" size={26} color={ACCENT} />}
+        </Pressable>
         <View style={styles.barre}>
           <View style={[styles.barrePleine, { width: `${progression * 100}%` }]} />
         </View>
@@ -304,28 +382,186 @@ function Lecteur() {
         </View>
 
         <View style={styles.commandes}>
-          <BoutonRond libelle="⏮" onPress={() => courant !== null && courant > 0 && lancer(courant - 1)} />
+          <BoutonRond icone="play-skip-back" onPress={allerPrecedent} />
           <BoutonRond libelle={`−${SAUT_SECONDES}`} onPress={() => sauter(-SAUT_SECONDES)} />
-          <BoutonRond libelle={status.playing ? '❚❚' : '▶'} onPress={lectureOuPause} principal />
+          <BoutonRond icone={status.playing ? 'pause' : 'play'} onPress={lectureOuPause} principal />
           <BoutonRond libelle={`+${SAUT_SECONDES}`} onPress={() => sauter(SAUT_SECONDES)} />
-          <BoutonRond
-            libelle="⏭"
-            onPress={() => courant !== null && courant + 1 < morceaux.length && lancer(courant + 1)}
-          />
+          <BoutonRond icone="play-skip-forward" onPress={allerSuivant} />
         </View>
       </View>
+
+      {/* Écran « en cours » : tout en grand, pour la voiture. */}
+      <Modal visible={pleinEcran && !!morceauCourant} animationType="slide" onRequestClose={() => setPleinEcran(false)}>
+        <SafeAreaProvider>
+          <SafeAreaView style={styles.plein} edges={['top', 'bottom']}>
+            <View style={styles.pleinHaut}>
+              <Pressable
+                onPress={() => setPleinEcran(false)}
+                hitSlop={16}
+                style={({ pressed }) => [styles.pleinFermer, pressed && styles.appuye]}
+                accessibilityLabel="Revenir à la liste"
+              >
+                <Ionicons name="chevron-down" size={34} color="#FFF" />
+              </Pressable>
+              <Text style={styles.pleinTheme} numberOfLines={1}>
+                {morceauCourant?.theme}
+              </Text>
+              <View style={styles.pleinFermer} />
+            </View>
+
+            <View style={styles.pleinCentre}>
+              <Text style={styles.pleinTitre} numberOfLines={3} adjustsFontSizeToFit>
+                {morceauCourant?.titre}
+              </Text>
+              <BarreProgression
+                progression={progression}
+                onChercher={(ratio) => status.duration > 0 && player.seekTo(ratio * status.duration)}
+              />
+              <View style={styles.temps}>
+                <Text style={styles.pleinTemps}>{duree(status.currentTime)}</Text>
+                <Text style={styles.pleinTemps}>−{duree(status.duration - status.currentTime)}</Text>
+              </View>
+            </View>
+
+            <View style={styles.pleinCommandes}>
+              <BoutonRond libelle={`−${SAUT_SECONDES}`} onPress={() => sauter(-SAUT_SECONDES)} grand />
+              <BoutonRond icone={status.playing ? 'pause' : 'play'} onPress={lectureOuPause} principal geant />
+              <BoutonRond libelle={`+${SAUT_SECONDES}`} onPress={() => sauter(SAUT_SECONDES)} grand />
+            </View>
+            <View style={styles.pleinPistes}>
+              <BoutonLarge icone="play-skip-back" libelle="Précédent" onPress={allerPrecedent} />
+              <BoutonLarge icone="play-skip-forward" libelle="Suivant" onPress={allerSuivant} iconeApres />
+            </View>
+
+            <View style={styles.pleinOptions}>
+              <BoutonOption
+                icone="repeat"
+                libelle={LIBELLES_REPETITION[repetition]}
+                actif={repetition !== 'non'}
+                onPress={() => setRepetition(repetitionSuivante)}
+              />
+              <BoutonOption
+                icone="shuffle"
+                libelle={aleatoire ? 'Au hasard dans le thème' : 'Dans l’ordre'}
+                actif={aleatoire}
+                onPress={() => setAleatoire((a) => !a)}
+              />
+              <BoutonOption
+                icone="moon"
+                libelle={libelleMinuterie(minuterie, maintenant)}
+                actif={minuterie !== null}
+                onPress={changerMinuterie}
+              />
+            </View>
+          </SafeAreaView>
+        </SafeAreaProvider>
+      </Modal>
     </SafeAreaView>
   );
 }
 
-function BoutonRond({ libelle, onPress, principal }: { libelle: string; onPress: () => void; principal?: boolean }) {
+type NomIcone = keyof typeof Ionicons.glyphMap;
+
+function BoutonRond({
+  libelle,
+  icone,
+  onPress,
+  principal,
+  grand,
+  geant,
+}: {
+  libelle?: string;
+  icone?: NomIcone;
+  onPress: () => void;
+  principal?: boolean;
+  grand?: boolean;
+  geant?: boolean;
+}) {
+  const taille = geant ? 128 : grand ? 84 : principal ? 88 : 60;
+  const couleur = principal ? '#0B0B0D' : '#FFF';
   return (
     <Pressable
       onPress={onPress}
       hitSlop={8}
-      style={({ pressed }) => [styles.rond, principal && styles.rondPrincipal, pressed && styles.appuye]}
+      accessibilityLabel={libelle ?? icone}
+      style={({ pressed }) => [
+        styles.rond,
+        { width: taille, height: taille, borderRadius: taille / 2 },
+        principal && styles.rondPrincipal,
+        pressed && styles.appuye,
+      ]}
     >
-      <Text style={[styles.rondTexte, principal && styles.rondTextePrincipal]}>{libelle}</Text>
+      {icone ? (
+        <Ionicons
+          name={icone}
+          size={taille * 0.42}
+          color={couleur}
+          // Le triangle « lecture » paraît décentré : on le pousse d'un cheveu à droite.
+          style={icone === 'play' ? { marginLeft: taille * 0.06 } : undefined}
+        />
+      ) : (
+        <Text style={[styles.rondTexte, { color: couleur, fontSize: grand ? 26 : 20 }]}>{libelle}</Text>
+      )}
+    </Pressable>
+  );
+}
+
+function BoutonLarge({
+  icone,
+  libelle,
+  onPress,
+  iconeApres,
+}: {
+  icone: NomIcone;
+  libelle: string;
+  onPress: () => void;
+  iconeApres?: boolean;
+}) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.large, pressed && styles.appuye]}>
+      {!iconeApres && <Ionicons name={icone} size={28} color="#FFF" />}
+      <Text style={styles.largeTexte}>{libelle}</Text>
+      {iconeApres && <Ionicons name={icone} size={28} color="#FFF" />}
+    </Pressable>
+  );
+}
+
+function BoutonOption({
+  icone,
+  libelle,
+  actif,
+  onPress,
+}: {
+  icone: NomIcone;
+  libelle: string;
+  actif: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.option, actif && styles.optionActive, pressed && styles.appuye]}
+      accessibilityState={{ selected: actif }}
+    >
+      <Ionicons name={icone} size={24} color={actif ? '#0B0B0D' : ACCENT} />
+      <Text style={[styles.optionTexte, actif && styles.optionTexteActif]}>{libelle}</Text>
+    </Pressable>
+  );
+}
+
+/** Barre de lecture : on touche un endroit pour s'y rendre. */
+function BarreProgression({ progression, onChercher }: { progression: number; onChercher: (ratio: number) => void }) {
+  const [largeur, setLargeur] = useState(1);
+  return (
+    <Pressable
+      onLayout={(e) => setLargeur(e.nativeEvent.layout.width)}
+      onPress={(e) => onChercher(Math.min(Math.max(e.nativeEvent.locationX / largeur, 0), 1))}
+      hitSlop={{ top: 16, bottom: 16 }}
+      style={styles.pleinBarre}
+      accessibilityLabel="Avancer ou reculer dans le morceau"
+    >
+      {/* La partie remplie ne capte pas le toucher : la position se lit sur la barre entière. */}
+      <View pointerEvents="none" style={[styles.pleinBarrePleine, { width: `${progression * 100}%` }]} />
     </Pressable>
   );
 }
@@ -384,7 +620,8 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#2A2A30',
   },
-  enCours: { color: '#FFF', fontSize: 20, fontWeight: '600', marginBottom: 12 },
+  enCoursLigne: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+  enCours: { flex: 1, color: '#FFF', fontSize: 20, fontWeight: '600' },
   barre: { height: 6, backgroundColor: '#2A2A30', borderRadius: 3, overflow: 'hidden' },
   barrePleine: { height: 6, backgroundColor: ACCENT },
   temps: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
@@ -401,5 +638,42 @@ const styles = StyleSheet.create({
   },
   rondPrincipal: { width: 88, height: 88, borderRadius: 44, backgroundColor: ACCENT },
   rondTexte: { color: '#FFF', fontSize: 20, fontWeight: '600' },
-  rondTextePrincipal: { color: '#0B0B0D', fontSize: 32 },
+
+  plein: { flex: 1, backgroundColor: '#0B0B0D', paddingHorizontal: 22 },
+  pleinHaut: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 },
+  pleinFermer: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  pleinTheme: { flex: 1, textAlign: 'center', color: ACCENT, fontSize: 16, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase' },
+  pleinCentre: { flex: 1, justifyContent: 'center' },
+  pleinTitre: { color: '#FFF', fontSize: 38, fontWeight: '700', lineHeight: 44, marginBottom: 28 },
+  pleinBarre: { height: 10, backgroundColor: '#2A2A30', borderRadius: 5, overflow: 'hidden' },
+  pleinBarrePleine: { height: 10, backgroundColor: ACCENT },
+  pleinTemps: { color: '#B4B4BC', fontSize: 18, fontVariant: ['tabular-nums'], marginTop: 6 },
+  pleinCommandes: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
+  pleinPistes: { flexDirection: 'row', gap: 12, marginBottom: 18 },
+  large: {
+    flex: 1,
+    height: 64,
+    borderRadius: 18,
+    backgroundColor: '#22222A',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  largeTexte: { color: '#FFF', fontSize: 19, fontWeight: '600' },
+  pleinOptions: { gap: 10, paddingBottom: 8 },
+  option: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    height: 54,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    backgroundColor: '#17171B',
+    borderWidth: 1,
+    borderColor: '#2A2A30',
+  },
+  optionActive: { backgroundColor: ACCENT, borderColor: ACCENT },
+  optionTexte: { color: '#F2F2F5', fontSize: 17, fontWeight: '500' },
+  optionTexteActif: { color: '#0B0B0D', fontWeight: '700' },
 });
