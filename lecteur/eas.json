@@ -8,7 +8,8 @@
       "distribution": "internal",
       "ios": {
         "resourceClass": "default"
-      }
+      },
+      "autoIncrement": true
     }
   }
 }

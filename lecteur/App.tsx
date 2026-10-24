@@ -13,6 +13,7 @@ import {
   lireAdresseMac,
   lirePositions,
   listerMorceaux,
+  rangerBoiteDeReception,
   supprimerMorceau,
   synchroniserAvecMac,
 } from './src/bibliotheque';
@@ -65,8 +66,10 @@ function Lecteur() {
   const [minuterie, setMinuterie] = useState<Minuterie>(null);
   const [maintenant, setMaintenant] = useState(Date.now());
 
-  const recharger = useCallback(() => {
+  const recharger = useCallback(async () => {
     try {
+      // Fichiers reçus par AirDrop ou « Partager » : iOS les dépose dans Inbox.
+      await rangerBoiteDeReception().catch(() => {});
       setMorceaux(listerMorceaux());
     } catch (e) {
       Alert.alert('Lecture du dossier impossible', String(e));
@@ -221,16 +224,29 @@ function Lecteur() {
     player.seekTo(cible);
   };
 
+  const [synchro, setSynchro] = useState<string | null>(null);
+
   const ajouter = async () => {
     try {
-      const n = await importerDepuisFichiers();
-      if (n > 0) recharger();
+      const bilan = await importerDepuisFichiers((n) =>
+        setSynchro(`Import de ${n} morceau${n > 1 ? 'x' : ''}… (les fichiers iCloud peuvent prendre un moment)`),
+      );
+      if (!bilan) return;
+      await recharger();
+      const n = bilan.ajoutes.length;
+      const message = [
+        n > 0 ? `${n} morceau${n > 1 ? 'x' : ''} ajouté${n > 1 ? 's' : ''} dans « Mes morceaux ».` : '',
+        ...bilan.echecs.map((e) => `Échec pour « ${e.nom} » : ${e.raison}`),
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+      Alert.alert(bilan.echecs.length === 0 ? 'Import terminé' : 'Import incomplet', message);
     } catch (e) {
-      Alert.alert('Import impossible', String(e));
+      Alert.alert('Import impossible', e instanceof Error ? e.message : String(e));
+    } finally {
+      setSynchro(null);
     }
   };
-
-  const [synchro, setSynchro] = useState<string | null>(null);
 
   const lancerSynchro = async (adresse: string) => {
     setSynchro('Connexion au Mac…');

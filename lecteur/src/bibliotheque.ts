@@ -64,12 +64,14 @@ function destinationLibre(nom: string): File {
  * Documents/Inbox. On les remonte dans Documents pour qu'ils rejoignent
  * la liste.
  */
-function rangerBoiteDeReception(): void {
+export async function rangerBoiteDeReception(): Promise<void> {
   const inbox = new Directory(Paths.document, 'Inbox');
   if (!inbox.exists) return;
   for (const element of inbox.list()) {
     if (element instanceof File && estAudio(element.name)) {
-      element.move(destinationLibre(element.name));
+      // move() et copy() sont asynchrones depuis le SDK 57 : sans await, la
+      // suite du code courait avant la fin du déplacement.
+      await element.move(destinationLibre(element.name));
     }
   }
 }
@@ -94,12 +96,8 @@ function parcourir(dossier: Directory, prefixe: string, resultat: Morceau[]): vo
 }
 
 /** Tous les morceaux, triés par thème puis par titre (l'ordre de lecture « suivant »). */
+/** Tous les morceaux du dossier. Appeler rangerBoiteDeReception() avant. */
 export function listerMorceaux(): Morceau[] {
-  try {
-    rangerBoiteDeReception();
-  } catch {
-    // Une boîte de réception illisible ne doit pas empêcher d'afficher le reste.
-  }
   const morceaux: Morceau[] = [];
   parcourir(Paths.document, '', morceaux);
   const rangTheme = (t: string) => (t === THEME_RACINE ? '' : t);
@@ -139,21 +137,43 @@ function nomAvecExtension(asset: DocumentPicker.DocumentPickerAsset): string {
   return `${asset.name}.${extension}`;
 }
 
-/** Ouvre le sélecteur de l'app Fichiers et copie les morceaux choisis dans l'app. */
-export async function importerDepuisFichiers(): Promise<number> {
+export type BilanImport = { ajoutes: string[]; echecs: { nom: string; raison: string }[] };
+
+/**
+ * Ouvre le sélecteur de l'app Fichiers (iCloud Drive compris) et copie les
+ * morceaux choisis dans l'app. Renvoie null si l'utilisateur a annulé.
+ *
+ * `pendant` est appelé une fois le choix fait, avant la copie : les fichiers
+ * iCloud peuvent mettre quelques secondes à arriver, l'écran doit le dire.
+ */
+export async function importerDepuisFichiers(pendant?: (nombre: number) => void): Promise<BilanImport | null> {
   const resultat = await DocumentPicker.getDocumentAsync({
     type: 'audio/*',
     multiple: true,
     copyToCacheDirectory: true,
   });
-  if (resultat.canceled) return 0;
+  if (resultat.canceled) return null;
+  pendant?.(resultat.assets.length);
 
+  const bilan: BilanImport = { ajoutes: [], echecs: [] };
   for (const asset of resultat.assets) {
-    const source = new File(asset.uri);
-    source.copy(destinationLibre(nomAvecExtension(asset)));
-    source.delete();
+    try {
+      const source = new File(asset.uri);
+      const destination = destinationLibre(nomAvecExtension(asset));
+      // copy() est asynchrone : on attend la fin avant d'effacer la copie
+      // temporaire, sinon la copie échouait en silence.
+      await source.copy(destination);
+      try {
+        source.delete();
+      } catch {
+        // La copie temporaire du sélecteur sera de toute façon vidée par iOS.
+      }
+      bilan.ajoutes.push(asset.name);
+    } catch (e) {
+      bilan.echecs.push({ nom: asset.name, raison: e instanceof Error ? e.message : String(e) });
+    }
   }
-  return resultat.assets.length;
+  return bilan;
 }
 
 /* Synchro avec le Mac (voir serveur-mac/serveur.mjs). */
