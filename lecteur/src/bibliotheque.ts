@@ -79,7 +79,8 @@ export async function rangerBoiteDeReception(): Promise<void> {
 function parcourir(dossier: Directory, prefixe: string, resultat: Morceau[]): void {
   for (const element of dossier.list()) {
     if (element instanceof Directory) {
-      if (prefixe === '' && element.name === 'Inbox') continue;
+      // Inbox : fichiers reçus en attente de rangement ; Photos : les albums photo.
+      if (prefixe === '' && (element.name === 'Inbox' || element.name === 'Photos')) continue;
       parcourir(element, `${prefixe}${element.name}/`, resultat);
     } else if (element instanceof File && estAudio(element.name)) {
       const nom = `${prefixe}${element.name}`;

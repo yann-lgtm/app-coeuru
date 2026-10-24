@@ -17,6 +17,8 @@ import {
   supprimerMorceau,
   synchroniserAvecMac,
 } from './src/bibliotheque';
+import VuePhotos from './src/VuePhotos';
+import { Album, listerAlbums, synchroniserPhotos } from './src/photos';
 import {
   Bibliotheque,
   ajouterABibliotheque,
@@ -81,12 +83,15 @@ function Lecteur() {
   const [bibliotheques, setBibliotheques] = useState<Bibliotheque[]>([]);
   const [vue, setVue] = useState<string>('tout');
   const [contexteLecture, setContexteLecture] = useState<string>('tout');
+  const [espace, setEspace] = useState<'musique' | 'photos'>('musique');
+  const [albums, setAlbums] = useState<Album[]>([]);
 
   const recharger = useCallback(async () => {
     try {
       // Fichiers reçus par AirDrop ou « Partager » : iOS les dépose dans Inbox.
       await rangerBoiteDeReception().catch(() => {});
       setMorceaux(listerMorceaux());
+      setAlbums(listerAlbums());
     } catch (e) {
       Alert.alert('Lecture du dossier impossible', String(e));
     }
@@ -319,15 +324,20 @@ function Lecteur() {
     setSynchro('Connexion au Mac…');
     try {
       const { ajoutes, dejaPresents } = await synchroniserAvecMac(adresse, (fait, total) => {
-        setSynchro(total === 0 ? 'Rien de nouveau' : `Copie ${fait} / ${total}…`);
+        setSynchro(total === 0 ? 'Musique : rien de nouveau' : `Musique : ${fait} / ${total}…`);
         if (fait > 0) recharger();
       });
+      const photos = await synchroniserPhotos(adresse, (fait, total) => {
+        setSynchro(total === 0 ? 'Photos : rien de nouveau' : `Photos : ${fait} / ${total}…`);
+        if (fait > 0 && fait % 10 === 0) recharger();
+      });
       recharger();
+      const pluriel = (n: number, mot: string) => `${n} ${mot}${n > 1 ? (mot === 'morceau' ? 'x' : 's') : ''}`;
       Alert.alert(
         'Synchro terminée',
-        ajoutes === 0
-          ? `Tout est déjà sur l'iPhone (${dejaPresents} morceaux).`
-          : `${ajoutes} morceau${ajoutes > 1 ? 'x' : ''} copié${ajoutes > 1 ? 's' : ''} sur l'iPhone.`,
+        ajoutes === 0 && photos.ajoutees === 0
+          ? `Tout est déjà sur l'iPhone (${pluriel(dejaPresents, 'morceau')}, ${pluriel(photos.dejaPresentes, 'photo')}).`
+          : `Copié sur l'iPhone : ${pluriel(ajoutes, 'morceau')} et ${pluriel(photos.ajoutees, 'photo')}.`,
       );
     } catch {
       Alert.alert(
@@ -480,13 +490,35 @@ function Lecteur() {
           >
             <Text style={styles.texteAjouter}>⟳ Mac</Text>
           </Pressable>
-          <Pressable onPress={ajouter} style={({ pressed }) => [styles.boutonAjouter, pressed && styles.appuye]}>
-            <Text style={styles.texteAjouter}>＋</Text>
-          </Pressable>
+          {espace === 'musique' && (
+            <Pressable onPress={ajouter} style={({ pressed }) => [styles.boutonAjouter, pressed && styles.appuye]}>
+              <Text style={styles.texteAjouter}>＋</Text>
+            </Pressable>
+          )}
         </View>
       </View>
       {synchro && <Text style={styles.bandeauSynchro}>{synchro}</Text>}
 
+      <View style={styles.espaces}>
+        {(['musique', 'photos'] as const).map((e) => (
+          <Pressable
+            key={e}
+            onPress={() => setEspace(e)}
+            accessibilityState={{ selected: espace === e }}
+            style={[styles.espace, espace === e && styles.espaceActif]}
+          >
+            <Ionicons name={e === 'musique' ? 'musical-notes' : 'images'} size={20} color={espace === e ? '#0B0B0D' : '#C8C8CE'} />
+            <Text style={[styles.espaceTexte, espace === e && styles.espaceTexteActif]}>
+              {e === 'musique' ? 'Musique' : 'Photos'}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {espace === 'photos' ? (
+        <VuePhotos albums={albums} onChangement={recharger} />
+      ) : (
+      <>
       <View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.onglets}>
           <Onglet libelle="Tout" actif={vue === 'tout'} onPress={() => setVue('tout')} />
@@ -550,6 +582,8 @@ function Lecteur() {
           );
         }}
       />
+      </>
+      )}
 
       <View style={styles.panneau}>
         <Pressable
@@ -799,6 +833,27 @@ const styles = StyleSheet.create({
   },
   titreApp: { color: '#FFF', fontSize: 30, fontWeight: '700' },
   boutonsEntete: { flexDirection: 'row', gap: 10 },
+  espaces: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 4,
+    borderRadius: 16,
+    backgroundColor: '#17171B',
+    gap: 4,
+  },
+  espace: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  espaceActif: { backgroundColor: ACCENT },
+  espaceTexte: { color: '#C8C8CE', fontSize: 17, fontWeight: '600' },
+  espaceTexteActif: { color: '#0B0B0D' },
   onglets: { paddingHorizontal: 16, paddingBottom: 10, gap: 8 },
   onglet: {
     height: 42,
