@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppState, Modal, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
+import { ActionSheetIOS, Alert, AppState, Modal, Pressable, ScrollView, SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import {
@@ -18,14 +18,24 @@ import {
   synchroniserAvecMac,
 } from './src/bibliotheque';
 import {
+  Bibliotheque,
+  ajouterABibliotheque,
+  creerBibliotheque,
+  lireBibliotheques,
+  oublierMorceau,
+  renommerBibliotheque,
+  retirerDeBibliotheque,
+  supprimerBibliotheque,
+} from './src/bibliotheques';
+import {
   FONDU_SECONDES,
-  LIBELLES_REPETITION,
   Minuterie,
   Repetition,
-  indexPrecedent,
-  indexSuivant,
   libelleMinuterie,
+  libelleRepetition,
   minuterieSuivante,
+  morceauPrecedent,
+  morceauSuivant,
   repetitionSuivante,
 } from './src/lecture';
 
@@ -65,6 +75,12 @@ function Lecteur() {
   const [aleatoire, setAleatoire] = useState(false);
   const [minuterie, setMinuterie] = useState<Minuterie>(null);
   const [maintenant, setMaintenant] = useState(Date.now());
+  // Bibliothèques personnalisées, la vue affichée (« tout » ou un id), et la
+  // vue dans laquelle le morceau en cours a été lancé : c'est elle qui décide
+  // du suivant, même si on change d'onglet entre-temps.
+  const [bibliotheques, setBibliotheques] = useState<Bibliotheque[]>([]);
+  const [vue, setVue] = useState<string>('tout');
+  const [contexteLecture, setContexteLecture] = useState<string>('tout');
 
   const recharger = useCallback(async () => {
     try {
@@ -84,6 +100,7 @@ function Lecteur() {
       interruptionMode: 'doNotMix',
     });
     lirePositions().then((p) => (positions.current = p));
+    lireBibliotheques().then(setBibliotheques);
     recharger();
   }, [recharger]);
 
@@ -97,11 +114,38 @@ function Lecteur() {
 
   const morceauCourant = courant !== null ? morceaux[courant] : undefined;
 
+  const parNom = useMemo(() => new Map(morceaux.map((m) => [m.nom, m])), [morceaux]);
+  const bibliothequeAffichee = bibliotheques.find((b) => b.id === vue);
+
+  /** Les morceaux d'une vue, dans leur ordre ; un morceau effacé est ignoré. */
+  const ordreDe = useCallback(
+    (contexte: string): string[] => {
+      if (contexte === 'tout') return morceaux.map((m) => m.nom);
+      const biblio = bibliotheques.find((b) => b.id === contexte);
+      return (biblio?.morceaux ?? []).filter((nom) => parNom.has(nom));
+    },
+    [morceaux, bibliotheques, parNom],
+  );
+
+  /** Ce qu'on répète ou mélange : le thème dans « Tout », la bibliothèque sinon. */
+  const groupeDe = useCallback(
+    (contexte: string, nom: string): string[] => {
+      if (contexte !== 'tout') return ordreDe(contexte);
+      const theme = parNom.get(nom)?.theme;
+      return morceaux.filter((m) => m.theme === theme).map((m) => m.nom);
+    },
+    [ordreDe, morceaux, parNom],
+  );
+
   const sections = useMemo(() => {
+    if (bibliothequeAffichee) {
+      const data = ordreDe(vue).flatMap((nom) => parNom.get(nom) ?? []);
+      return data.length > 0 ? [{ title: bibliothequeAffichee.nom, data }] : [];
+    }
     const parTheme = new Map<string, Morceau[]>();
     for (const m of morceaux) parTheme.set(m.theme, [...(parTheme.get(m.theme) ?? []), m]);
     return [...parTheme].map(([title, data]) => ({ title, data }));
-  }, [morceaux]);
+  }, [morceaux, bibliothequeAffichee, ordreDe, vue, parNom]);
 
   const memoriser = useCallback((nom: string, secondes: number) => {
     positions.current[nom] = secondes;
@@ -109,9 +153,10 @@ function Lecteur() {
   }, []);
 
   const lancer = useCallback(
-    (index: number) => {
-      const morceau = morceaux[index];
+    (nom: string, contexte: string) => {
+      const morceau = parNom.get(nom);
       if (!morceau) return;
+      setContexteLecture(contexte);
       if (morceauCourant) memoriser(morceauCourant.nom, player.currentTime);
 
       player.replace({ uri: morceau.uri });
@@ -124,7 +169,7 @@ function Lecteur() {
       );
       setNomCourant(morceau.nom);
     },
-    [morceaux, morceauCourant, memoriser, player],
+    [parNom, morceauCourant, memoriser, player],
   );
 
   // « Répète ce morceau » : c'est le lecteur qui boucle, sans passer par la fin.
@@ -178,15 +223,29 @@ function Lecteur() {
       setMinuterie(null);
       return;
     }
-    const suivant = indexSuivant(morceaux, courant, repetition, aleatoire);
-    if (suivant !== null) lancer(suivant);
+    const nom = morceauCourant.nom;
+    const suivant = morceauSuivant(
+      ordreDe(contexteLecture),
+      groupeDe(contexteLecture, nom),
+      nom,
+      repetition,
+      aleatoire,
+    );
+    if (suivant !== null) lancer(suivant, contexteLecture);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status.didJustFinish]);
 
   const allerSuivant = () => {
-    if (courant === null) return;
-    const suivant = indexSuivant(morceaux, courant, repetition === 'morceau' ? 'non' : repetition, aleatoire);
-    if (suivant !== null) lancer(suivant);
+    if (!morceauCourant) return;
+    const nom = morceauCourant.nom;
+    const suivant = morceauSuivant(
+      ordreDe(contexteLecture),
+      groupeDe(contexteLecture, nom),
+      nom,
+      repetition === 'morceau' ? 'non' : repetition,
+      aleatoire,
+    );
+    if (suivant !== null) lancer(suivant, contexteLecture);
   };
 
   // Comme sur un autoradio : un premier appui revient au début du morceau.
@@ -196,8 +255,15 @@ function Lecteur() {
       player.seekTo(0);
       return;
     }
-    const precedent = indexPrecedent(morceaux, courant, repetition === 'morceau' ? 'non' : repetition);
-    if (precedent !== null) lancer(precedent);
+    if (!morceauCourant) return;
+    const nom = morceauCourant.nom;
+    const precedent = morceauPrecedent(
+      ordreDe(contexteLecture),
+      groupeDe(contexteLecture, nom),
+      nom,
+      repetition === 'morceau' ? 'non' : repetition,
+    );
+    if (precedent !== null) lancer(precedent, contexteLecture);
   };
 
   const changerMinuterie = () => {
@@ -208,7 +274,8 @@ function Lecteur() {
 
   const lectureOuPause = () => {
     if (courant === null) {
-      if (morceaux.length > 0) lancer(0);
+      const premier = ordreDe(vue)[0];
+      if (premier) lancer(premier, vue);
       return;
     }
     if (status.playing) {
@@ -296,23 +363,105 @@ function Lecteur() {
     lancerSynchro((await lireAdresseMac()) ?? ADRESSE_MAC_PAR_DEFAUT);
   };
 
-  const proposerSuppression =(morceau: Morceau, index: number) => {
-    Alert.alert('Retirer ce morceau ?', `${morceau.titre}\n\nLe fichier sera effacé de l'iPhone.`, [
+  const proposerSuppression = (morceau: Morceau) => {
+    Alert.alert('Supprimer ce morceau de l’iPhone ?', `${morceau.titre}\n\nLe fichier sera effacé, et retiré de toutes les bibliothèques.`, [
       { text: 'Annuler', style: 'cancel' },
       {
-        text: 'Retirer',
+        text: 'Supprimer',
         style: 'destructive',
-        onPress: () => {
-          if (index === courant) {
+        onPress: async () => {
+          if (morceau.nom === nomCourant) {
             player.pause();
             player.clearLockScreenControls();
             setNomCourant(null);
           }
           supprimerMorceau(morceau);
+          setBibliotheques(await oublierMorceau(morceau.nom));
           recharger();
         },
       },
     ]);
+  };
+
+  const demanderNomBibliotheque = (titre: string, valeur: string, valider: (nom: string) => void) => {
+    Alert.prompt(
+      titre,
+      'Par exemple « Voiture », « Dormir » ou « Soirée ».',
+      (saisie) => {
+        if (saisie?.trim()) valider(saisie.trim());
+      },
+      'plain-text',
+      valeur,
+    );
+  };
+
+  const nouvelleBibliotheque = (puis?: (id: string) => void) =>
+    demanderNomBibliotheque('Nouvelle bibliothèque', '', async (nom) => {
+      const { liste, creee } = await creerBibliotheque(nom);
+      setBibliotheques(liste);
+      if (puis) puis(creee.id);
+      else setVue(creee.id);
+    });
+
+  const choisirBibliotheque = (morceau: Morceau) => {
+    const choix = bibliotheques.filter((b) => !b.morceaux.includes(morceau.nom));
+    const libelles = [...choix.map((b) => b.nom), '＋ Nouvelle bibliothèque…', 'Annuler'];
+    ActionSheetIOS.showActionSheetWithOptions(
+      { title: `Ajouter « ${morceau.titre} » à…`, options: libelles, cancelButtonIndex: libelles.length - 1 },
+      async (i) => {
+        if (i < choix.length) setBibliotheques(await ajouterABibliotheque(choix[i].id, morceau.nom));
+        else if (i === choix.length)
+          nouvelleBibliotheque(async (id) => setBibliotheques(await ajouterABibliotheque(id, morceau.nom)));
+      },
+    );
+  };
+
+  // Appui long sur un morceau : ajouter à une bibliothèque, l'en retirer, ou l'effacer.
+  const menuMorceau = (morceau: Morceau) => {
+    const actions: { libelle: string; faire: () => void }[] = [
+      { libelle: 'Ajouter à une bibliothèque…', faire: () => choisirBibliotheque(morceau) },
+    ];
+    if (bibliothequeAffichee) {
+      actions.push({
+        libelle: `Retirer de « ${bibliothequeAffichee.nom} »`,
+        faire: async () => setBibliotheques(await retirerDeBibliotheque(bibliothequeAffichee.id, morceau.nom)),
+      });
+    }
+    actions.push({ libelle: 'Supprimer de l’iPhone…', faire: () => proposerSuppression(morceau) });
+    const libelles = [...actions.map((a) => a.libelle), 'Annuler'];
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title: morceau.titre,
+        options: libelles,
+        cancelButtonIndex: libelles.length - 1,
+        destructiveButtonIndex: actions.length - 1,
+      },
+      (i) => actions[i]?.faire(),
+    );
+  };
+
+  // Appui long sur l'onglet d'une bibliothèque : la renommer ou la supprimer.
+  const menuBibliotheque = (biblio: Bibliotheque) => {
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title: biblio.nom,
+        message: 'Supprimer une bibliothèque n’efface aucun morceau.',
+        options: ['Renommer…', 'Supprimer la bibliothèque', 'Annuler'],
+        destructiveButtonIndex: 1,
+        cancelButtonIndex: 2,
+      },
+      (i) => {
+        if (i === 0)
+          demanderNomBibliotheque('Renommer', biblio.nom, async (nom) =>
+            setBibliotheques(await renommerBibliotheque(biblio.id, nom)),
+          );
+        if (i === 1)
+          (async () => {
+            setBibliotheques(await supprimerBibliotheque(biblio.id));
+            if (vue === biblio.id) setVue('tout');
+          })();
+      },
+    );
   };
 
   const progression = status.duration > 0 ? status.currentTime / status.duration : 0;
@@ -338,19 +487,44 @@ function Lecteur() {
       </View>
       {synchro && <Text style={styles.bandeauSynchro}>{synchro}</Text>}
 
+      <View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.onglets}>
+          <Onglet libelle="Tout" actif={vue === 'tout'} onPress={() => setVue('tout')} />
+          {bibliotheques.map((b) => (
+            <Onglet
+              key={b.id}
+              libelle={b.nom}
+              actif={vue === b.id}
+              onPress={() => setVue(b.id)}
+              onLongPress={() => menuBibliotheque(b)}
+            />
+          ))}
+          <Onglet libelle="＋ Nouvelle" actif={false} onPress={() => nouvelleBibliotheque()} discret />
+        </ScrollView>
+      </View>
+
       <SectionList
         sections={sections}
         keyExtractor={(m) => m.nom}
         stickySectionHeadersEnabled
-        contentContainerStyle={morceaux.length === 0 && styles.listeVide}
+        contentContainerStyle={sections.length === 0 && styles.listeVide}
         ListEmptyComponent={
-          <View style={styles.vide}>
-            <Text style={styles.videTitre}>Aucun morceau pour l'instant</Text>
-            <Text style={styles.videTexte}>
-              Touche « ⟳ Mac » pour copier le dossier « Musique pour iPhone » du Mac, ou « ＋ » pour choisir des
-              fichiers sur l'iPhone.
-            </Text>
-          </View>
+          bibliothequeAffichee ? (
+            <View style={styles.vide}>
+              <Text style={styles.videTitre}>« {bibliothequeAffichee.nom} » est vide</Text>
+              <Text style={styles.videTexte}>
+                Dans « Tout », fais un appui long sur un morceau, puis « Ajouter à une bibliothèque… ».
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.vide}>
+              <Text style={styles.videTitre}>Aucun morceau pour l'instant</Text>
+              <Text style={styles.videTexte}>
+                Touche « ⟳ Mac » pour copier le dossier « Musique pour iPhone » du Mac, ou « ＋ » pour choisir des
+                fichiers sur l'iPhone.
+              </Text>
+            </View>
+          )
         }
         renderSectionHeader={({ section }) => (
           <Text style={styles.theme}>
@@ -358,13 +532,12 @@ function Lecteur() {
           </Text>
         )}
         renderItem={({ item }) => {
-          const index = morceaux.indexOf(item);
-          const actif = index === courant;
+          const actif = item.nom === nomCourant;
           const reprise = positions.current[item.nom];
           return (
             <Pressable
-              onPress={() => lancer(index)}
-              onLongPress={() => proposerSuppression(item, index)}
+              onPress={() => lancer(item.nom, vue)}
+              onLongPress={() => menuMorceau(item)}
               style={({ pressed }) => [styles.ligne, actif && styles.ligneActive, pressed && styles.appuye]}
             >
               <Text style={[styles.ligneTitre, actif && styles.ligneTitreActif]} numberOfLines={2}>
@@ -452,13 +625,19 @@ function Lecteur() {
             <View style={styles.pleinOptions}>
               <BoutonOption
                 icone="repeat"
-                libelle={LIBELLES_REPETITION[repetition]}
+                libelle={libelleRepetition(repetition, contexteLecture === 'tout' ? 'theme' : 'bibliotheque')}
                 actif={repetition !== 'non'}
                 onPress={() => setRepetition(repetitionSuivante)}
               />
               <BoutonOption
                 icone="shuffle"
-                libelle={aleatoire ? 'Au hasard dans le thème' : 'Dans l’ordre'}
+                libelle={
+                  aleatoire
+                    ? contexteLecture === 'tout'
+                      ? 'Au hasard dans le thème'
+                      : 'Au hasard dans la bibliothèque'
+                    : 'Dans l’ordre'
+                }
                 actif={aleatoire}
                 onPress={() => setAleatoire((a) => !a)}
               />
@@ -477,6 +656,31 @@ function Lecteur() {
 }
 
 type NomIcone = keyof typeof Ionicons.glyphMap;
+
+function Onglet({
+  libelle,
+  actif,
+  onPress,
+  onLongPress,
+  discret,
+}: {
+  libelle: string;
+  actif: boolean;
+  onPress: () => void;
+  onLongPress?: () => void;
+  discret?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      accessibilityState={{ selected: actif }}
+      style={({ pressed }) => [styles.onglet, actif && styles.ongletActif, discret && styles.ongletDiscret, pressed && styles.appuye]}
+    >
+      <Text style={[styles.ongletTexte, actif && styles.ongletTexteActif]}>{libelle}</Text>
+    </Pressable>
+  );
+}
 
 function BoutonRond({
   libelle,
@@ -595,6 +799,18 @@ const styles = StyleSheet.create({
   },
   titreApp: { color: '#FFF', fontSize: 30, fontWeight: '700' },
   boutonsEntete: { flexDirection: 'row', gap: 10 },
+  onglets: { paddingHorizontal: 16, paddingBottom: 10, gap: 8 },
+  onglet: {
+    height: 42,
+    paddingHorizontal: 16,
+    borderRadius: 21,
+    backgroundColor: '#1F1F24',
+    justifyContent: 'center',
+  },
+  ongletActif: { backgroundColor: ACCENT },
+  ongletDiscret: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#3A3A42' },
+  ongletTexte: { color: '#E6E6EA', fontSize: 16, fontWeight: '600' },
+  ongletTexteActif: { color: '#0B0B0D' },
   bandeauSynchro: { color: ACCENT, fontSize: 16, paddingHorizontal: 20, paddingBottom: 8 },
   boutonAjouter: { backgroundColor: '#1F1F24', paddingHorizontal: 18, paddingVertical: 12, borderRadius: 14 },
   texteAjouter: { color: ACCENT, fontSize: 18, fontWeight: '600' },

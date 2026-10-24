@@ -1,60 +1,60 @@
-import type { Morceau } from './bibliotheque';
-
 /*
  * Règles de lecture : quel morceau vient après, selon la répétition et le
  * hasard. Pur calcul, sans état : l'écran décide quand l'appeler.
+ *
+ * Tout se raisonne sur des noms de morceaux et deux listes :
+ * - `ordre` : la liste dans laquelle on avance (toute la bibliothèque de
+ *   l'iPhone, ou une bibliothèque personnalisée) ;
+ * - `groupe` : ce qu'on répète ou mélange (le thème du morceau quand on lit
+ *   « Tout », la bibliothèque entière sinon).
  */
 
-export type Repetition = 'non' | 'morceau' | 'theme';
+export type Repetition = 'non' | 'morceau' | 'groupe';
 
-export const LIBELLES_REPETITION: Record<Repetition, string> = {
-  non: 'Pas de répétition',
-  morceau: 'Répète ce morceau',
-  theme: 'Répète le thème',
-};
+export function libelleRepetition(r: Repetition, groupe: 'theme' | 'bibliotheque'): string {
+  if (r === 'non') return 'Pas de répétition';
+  if (r === 'morceau') return 'Répète ce morceau';
+  return groupe === 'theme' ? 'Répète le thème' : 'Répète la bibliothèque';
+}
 
 export function repetitionSuivante(r: Repetition): Repetition {
-  return r === 'non' ? 'morceau' : r === 'morceau' ? 'theme' : 'non';
+  return r === 'non' ? 'morceau' : r === 'morceau' ? 'groupe' : 'non';
 }
 
 /**
- * Index du morceau suivant, ou null s'il faut s'arrêter.
- * - au hasard : un autre morceau du même thème ;
- * - « répète le thème » : le suivant du thème, puis retour au premier ;
- * - sinon : le suivant de toute la liste, arrêt au dernier.
+ * Morceau suivant, ou null s'il faut s'arrêter.
+ * - au hasard : un autre morceau du groupe ;
+ * - « répète le groupe » : le suivant du groupe, puis retour au premier ;
+ * - sinon : le suivant dans l'ordre, arrêt au dernier.
  */
-export function indexSuivant(
-  morceaux: Morceau[],
-  courant: number,
+export function morceauSuivant(
+  ordre: string[],
+  groupe: string[],
+  courant: string,
   repetition: Repetition,
   aleatoire: boolean,
-): number | null {
-  const actuel = morceaux[courant];
-  if (!actuel) return null;
-  const memeTheme = morceaux.flatMap((m, i) => (m.theme === actuel.theme ? [i] : []));
-
+): string | null {
   if (aleatoire) {
-    const autres = memeTheme.filter((i) => i !== courant);
+    const autres = groupe.filter((nom) => nom !== courant);
     if (autres.length === 0) return repetition === 'non' ? null : courant;
     return autres[Math.floor(Math.random() * autres.length)];
   }
-  if (repetition === 'theme') {
-    const position = memeTheme.indexOf(courant);
-    return memeTheme[(position + 1) % memeTheme.length];
+  if (repetition === 'groupe' && groupe.length > 0) {
+    const position = groupe.indexOf(courant);
+    return groupe[(position + 1) % groupe.length];
   }
-  return courant + 1 < morceaux.length ? courant + 1 : null;
+  const position = ordre.indexOf(courant);
+  return position !== -1 && position + 1 < ordre.length ? ordre[position + 1] : null;
 }
 
-/** Index du morceau précédent (même logique de thème), ou null. */
-export function indexPrecedent(morceaux: Morceau[], courant: number, repetition: Repetition): number | null {
-  const actuel = morceaux[courant];
-  if (!actuel) return null;
-  if (repetition === 'theme') {
-    const memeTheme = morceaux.flatMap((m, i) => (m.theme === actuel.theme ? [i] : []));
-    const position = memeTheme.indexOf(courant);
-    return memeTheme[(position - 1 + memeTheme.length) % memeTheme.length];
+/** Morceau précédent (même logique), ou null. */
+export function morceauPrecedent(ordre: string[], groupe: string[], courant: string, repetition: Repetition): string | null {
+  if (repetition === 'groupe' && groupe.length > 0) {
+    const position = groupe.indexOf(courant);
+    return groupe[(position - 1 + groupe.length) % groupe.length];
   }
-  return courant > 0 ? courant - 1 : null;
+  const position = ordre.indexOf(courant);
+  return position > 0 ? ordre[position - 1] : null;
 }
 
 /* Minuterie d'arrêt */
