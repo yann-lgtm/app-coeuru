@@ -7,6 +7,7 @@ import {
   Modal,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -168,7 +169,15 @@ function Visionneuse({ album, depart, onFermer }: { album: Album; depart: number
             <Text style={styles.compteur}>
               {position + 1} / {album.photos.length}
             </Text>
-            <View style={styles.fermer} />
+            {/* Feuille de partage iOS : Messages, AirDrop, WhatsApp, « Enregistrer l'image »… */}
+            <Pressable
+              onPress={() => Share.share({ url: album.photos[position].uri })}
+              hitSlop={16}
+              style={styles.fermer}
+              accessibilityLabel="Partager"
+            >
+              <Ionicons name="share-outline" size={26} color="#FFF" />
+            </Pressable>
           </SafeAreaView>
         </View>
       </SafeAreaProvider>
