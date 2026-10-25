@@ -1,0 +1,71 @@
+{
+  "expo": {
+    "name": "Lecteur",
+    "slug": "lecteur",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.coeuru.lecteur",
+      "infoPlist": {
+        "CFBundleDisplayName": "Lecteur",
+        "UIBackgroundModes": [
+          "audio"
+        ],
+        "NSLocalNetworkUsageDescription": "Lecteur se connecte à ton Mac sur le Wi-Fi pour copier tes morceaux.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
+        "UIFileSharingEnabled": true,
+        "LSSupportsOpeningDocumentsInPlace": true,
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "Audio",
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "public.audio",
+              "public.mp3",
+              "com.microsoft.waveform-audio"
+            ]
+          }
+        ],
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.coeuru.lecteur",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0B0B0D"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      "expo-asset",
+      "expo-status-bar",
+      "expo-font",
+      "expo-image"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "0993f4a8-cf2b-4a81-bf43-0b68c2846658"
+      }
+    },
+    "owner": "yann-coeuru"
+  }
+}
