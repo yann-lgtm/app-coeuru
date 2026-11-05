@@ -15,6 +15,7 @@
           "audio"
         ],
         "NSLocalNetworkUsageDescription": "Lecteur se connecte à ton Mac sur le Wi-Fi pour copier tes morceaux.",
+        "NSPhotoLibraryAddUsageDescription": "Lecteur enregistre dans Photos les images que tu choisis de garder.",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         },
