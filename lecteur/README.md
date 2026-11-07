@@ -18,10 +18,27 @@ Un appui long sur un morceau le retire du téléphone.
 
 ## Lancer la synchro sur le Mac
 
-Le petit serveur doit tourner sur le Mac pendant la synchro :
+Le petit serveur démarre tout seul à l'ouverture de session du Mac et
+redémarre s'il s'arrête (lancement automatique
+`~/Library/LaunchAgents/com.coeuru.lecteur-synchro.plist`, journal dans
+`~/Library/Logs/lecteur-synchro.log`). Rien à faire au quotidien.
+
+Si l'app dit « Mac introuvable », vérifier qu'il tourne :
 
 ```bash
-cd ~/Desktop/app-coeuru/lecteur && node serveur-mac/serveur.mjs
+curl -s -o /dev/null -w "%{http_code}\n" http://Yann-Coeuru.local:8090/morceaux
+```
+
+`200` = il tourne. Sinon, le relancer :
+
+```bash
+launchctl kickstart -k gui/$(id -u)/com.coeuru.lecteur-synchro
+```
+
+Pour le lancer à la main, sans le lancement automatique :
+
+```bash
+cd ~/Desktop/app-coeuru-lecteur/lecteur && node serveur-mac/serveur.mjs
 ```
 
 Il affiche l'adresse du Mac à saisir dans l'app (appui long sur « ⟳ Mac ») si
@@ -30,7 +47,7 @@ Il affiche l'adresse du Mac à saisir dans l'app (appui long sur « ⟳ Mac ») 
 ## Essai avec Expo Go (le Mac doit rester allumé, même Wi-Fi)
 
 ```bash
-cd ~/Desktop/app-coeuru/lecteur && npx expo start --go --offline --port 8082
+cd ~/Desktop/app-coeuru-lecteur/lecteur && npx expo start --go --offline --port 8082
 ```
 
 ## Installation pour de bon
