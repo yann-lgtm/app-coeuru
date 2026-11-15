@@ -38,7 +38,7 @@ launchctl kickstart -k gui/$(id -u)/com.coeuru.lecteur-synchro
 Pour le lancer à la main, sans le lancement automatique :
 
 ```bash
-cd ~/Desktop/app-coeuru-lecteur/lecteur && node serveur-mac/serveur.mjs
+cd ~/Desktop/Projets/app-coeuru-lecteur/lecteur && node serveur-mac/serveur.mjs
 ```
 
 Il affiche l'adresse du Mac à saisir dans l'app (appui long sur « ⟳ Mac ») si
@@ -47,7 +47,7 @@ Il affiche l'adresse du Mac à saisir dans l'app (appui long sur « ⟳ Mac ») 
 ## Essai avec Expo Go (le Mac doit rester allumé, même Wi-Fi)
 
 ```bash
-cd ~/Desktop/app-coeuru-lecteur/lecteur && npx expo start --go --offline --port 8082
+cd ~/Desktop/Projets/app-coeuru-lecteur/lecteur && npx expo start --go --offline --port 8082
 ```
 
 ## Installation pour de bon
